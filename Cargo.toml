@@ -9,3 +9,4 @@ edition = "2021"
 json = "0.12"
 crossterm = "0.23"
 rand = "0.8"
+clap = { version = "3.1", features = ["derive"] }

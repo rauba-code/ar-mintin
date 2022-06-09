@@ -1,3 +1,4 @@
+extern crate clap;
 extern crate crossterm;
 extern crate json;
 extern crate rand;
@@ -187,7 +188,7 @@ fn readin(lines: &mut std::io::Lines<std::io::StdinLock>) -> Option<String> {
     r
 }
 
-fn simulate(mut pt: ProgressTable) {
+fn simulate(mut pt: ProgressTable, flag_debug: bool) {
     use rand::prelude::*;
     use std::io::{self, BufRead};
     const LEARN_SESSIONS: usize = 10;
@@ -206,7 +207,9 @@ fn simulate(mut pt: ProgressTable) {
     let mut rng = rand::thread_rng();
     let mut selector = || rng.gen::<f64>();
     loop {
-        eprintln!("=== ĮSIMINIMAS ===");
+        if flag_debug {
+            eprintln!("=== ĮSIMINIMAS ===")
+        }
         //standby(lines);
         let lentries = pt.select_random_entries(LEARN_SESSIONS, false, || 0_f64);
         for lentry in lentries {
@@ -215,7 +218,9 @@ fn simulate(mut pt: ProgressTable) {
             println!("    {}", lte.rhs);
             standby(lines);
             pt.set(lentry.0, true);
-            eprintln!("{:#?}", pt);
+            if flag_debug {
+                eprintln!("{:#?}", pt)
+            }
             loop {
                 let rentries = pt.select_random_entries(1, true, &mut selector);
                 if rentries.is_empty() {
@@ -224,9 +229,13 @@ fn simulate(mut pt: ProgressTable) {
                 let (ridx, rte) = rentries[0];
                 println!("    {}", rte.lhs);
                 let uln = readin(lines).unwrap();
-                eprintln!("{:#?}", pt);
+                if flag_debug {
+                    eprintln!("{:#?}", pt);
+                }
                 let rpass = rte.assess(uln);
-                eprintln!("{}", rpass);
+                if flag_debug {
+                    eprintln!("{}", rpass);
+                }
                 pt.set(ridx, rpass);
                 pt.step();
                 if rpass {
@@ -235,7 +244,9 @@ fn simulate(mut pt: ProgressTable) {
                 println!("    {}", rte.lhs);
                 println!("    {}", rte.rhs);
                 standby(lines);
-                eprintln!("{:#?}", pt);
+                if flag_debug {
+                    eprintln!("{:#?}", pt);
+                }
                 pt.set(lentry.0, true);
             }
         }
@@ -246,19 +257,36 @@ fn simulate(mut pt: ProgressTable) {
             let (ridx, rte) = rentry;
             println!("    {}", rte.lhs);
             let uln = readin(lines).unwrap();
-            eprintln!("{:#?}", pt);
+            if flag_debug {
+                eprintln!("{:#?}", pt);
+            }
             let rpass = rte.assess(uln);
-            eprintln!("{}", rpass);
+            if flag_debug {
+                eprintln!("{}", rpass);
+            }
             pt.set(ridx, rpass);
             pt.step();
         }
     }
 }
 
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// The JSON-formatted input path
+    #[clap()]
+    inpath: std::path::PathBuf,
+
+    #[clap(short, long)]
+    debug: bool,
+}
+
 fn main() {
+    let args = Args::parse();
     cls();
-    let inpath = Path::new("demo.json");
-    let table: Vec<TableEntry> = load_table(inpath);
+    let table: Vec<TableEntry> = load_table(&args.inpath);
     let progress = ProgressTable::new(&table);
-    simulate(progress);
+    simulate(progress, args.debug);
 }
