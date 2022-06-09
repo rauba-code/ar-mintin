@@ -1,5 +1,6 @@
 extern crate clap;
 extern crate crossterm;
+extern crate ctrlc;
 extern crate json;
 extern crate rand;
 
@@ -283,7 +284,19 @@ struct Args {
     debug: bool,
 }
 
+fn init() {
+    use crossterm::{cursor, ExecutableCommand};
+    ctrlc::set_handler(|| {
+        std::io::stdout().lock().execute(cursor::Show).unwrap();
+        println!();
+        println!("Viso gero!");
+        std::process::exit(0);
+    })
+    .unwrap();
+}
+
 fn main() {
+    init();
     let args = Args::parse();
     cls();
     let table: Vec<TableEntry> = load_table(&args.inpath);
