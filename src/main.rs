@@ -23,6 +23,7 @@ extern crate ctrlc;
 extern crate json;
 extern crate rand;
 
+mod cli;
 mod ostree;
 use ostree::OSTree;
 
@@ -177,26 +178,6 @@ struct ProgressEntry {
     pass: bool,
 }
 
-fn cls() {
-    use crossterm::{cursor, terminal, ExecutableCommand};
-    std::io::stdout()
-        .lock()
-        .execute(terminal::Clear(terminal::ClearType::All))
-        .unwrap()
-        .execute(cursor::MoveTo(0, 1))
-        .unwrap();
-}
-
-fn standby(lines: &mut std::io::Lines<std::io::StdinLock>) {
-    use crossterm::{cursor, ExecutableCommand};
-    std::io::stdout().lock().execute(cursor::Hide).unwrap();
-    if let Some(x) = lines.next() {
-        x.unwrap();
-    }
-    std::io::stdout().lock().execute(cursor::Show).unwrap();
-    cls();
-}
-
 fn readin(lines: &mut std::io::Lines<std::io::StdinLock>) -> Option<String> {
     use crossterm::{cursor, ExecutableCommand};
     std::io::stdout()
@@ -204,7 +185,7 @@ fn readin(lines: &mut std::io::Lines<std::io::StdinLock>) -> Option<String> {
         .execute(cursor::MoveRight(4))
         .unwrap();
     let r = lines.next().map(|x| x.unwrap());
-    cls();
+    cli::cls();
     r
 }
 
@@ -230,13 +211,13 @@ fn simulate(mut pt: ProgressTable, flag_debug: bool) {
         if flag_debug {
             eprintln!("=== ĮSIMINIMAS ===")
         }
-        //standby(lines);
+        //cli::standby(lines);
         let lentries = pt.select_random_entries(LEARN_SESSIONS, false, || 0_f64);
         for lentry in lentries {
             let lte: &TableEntry = lentry.1;
             println!("    {}", lte.lhs);
             println!("    {}", lte.rhs);
-            standby(lines);
+            cli::standby(lines);
             pt.set(lentry.0, true);
             if flag_debug {
                 eprintln!("{:#?}", pt)
@@ -263,7 +244,7 @@ fn simulate(mut pt: ProgressTable, flag_debug: bool) {
                 }
                 println!("    {}", rte.lhs);
                 println!("    {}", rte.rhs);
-                standby(lines);
+                cli::standby(lines);
                 if flag_debug {
                     eprintln!("{:#?}", pt);
                 }
@@ -271,7 +252,7 @@ fn simulate(mut pt: ProgressTable, flag_debug: bool) {
             }
         }
         println!("=== SAVIKONTROLĖ ===");
-        standby(lines);
+        cli::standby(lines);
         let rentries = pt.select_random_entries(ASSESS_SESSIONS, true, &mut selector);
         for rentry in rentries {
             let (ridx, rte) = rentry;
@@ -334,13 +315,13 @@ fn init() {
     Press ENTER to begin
 "
     );
-    standby(&mut io::stdin().lock().lines());
+    cli::standby(&mut io::stdin().lock().lines());
 }
 
 fn main() {
     init();
     let args = Args::parse();
-    cls();
+    cli::cls();
     let table: Vec<TableEntry> = load_table(&args.inpath);
     let progress = ProgressTable::new(&table);
     simulate(progress, args.debug);
