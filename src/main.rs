@@ -349,9 +349,7 @@ impl<'a> Simulation<'a> {
         }
     }
 }
-mod progress_path;
 use clap::Parser;
-//use progress_path::ProgressPath;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
