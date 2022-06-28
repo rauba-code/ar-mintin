@@ -22,16 +22,20 @@ extern crate crossterm;
 extern crate ctrlc;
 extern crate json;
 extern crate rand;
+extern crate serde;
+extern crate serde_json;
 
 mod cli;
 mod ostree;
 use ostree::OSTree;
 
+use serde::{Deserialize, Serialize};
 use std::fs::File;
+use std::io::prelude::*;
 use std::io::Read;
 use std::path::Path;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 struct TableEntry {
     lhs: String,
     rhs: String,
@@ -62,6 +66,25 @@ fn load_table(path: &Path) -> Vec<TableEntry> {
     table
 }
 
+#[derive(Serialize, Deserialize)]
+struct ProgressTableData {
+    entries: Vec<(ProgressEntry, TableEntry)>,
+    stp: f64,
+}
+
+impl ProgressTableData {
+    pub fn new(table: &ProgressTable) -> ProgressTableData {
+        ProgressTableData {
+            stp: table.stp,
+            entries: table
+                .entries
+                .iter()
+                .map(|&x| (x.0, (*x.1).clone()))
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ProgressTable<'a> {
     pub entries: Vec<(ProgressEntry, &'a TableEntry)>,
@@ -73,6 +96,52 @@ struct ProgressTable<'a> {
 const UNIT: i64 = 10000;
 
 impl<'a> ProgressTable<'a> {
+    pub fn write_to_file(&'a self, path: &Path) {
+        let outdata = serde_json::to_vec(&ProgressTableData::new(self)).unwrap();
+        let mut f = File::create(path).unwrap();
+        f.write_all(&outdata).unwrap();
+    }
+
+    fn tree_from_entries(entries: &'a [ProgressEntry], pass: bool) -> OSTree {
+        let mut tree = OSTree::new(entries.len());
+        for (idx, &entry) in entries.iter().enumerate() {
+            if entry.pass == pass {
+                tree.assign(idx, entry.distrust);
+            }
+        }
+        tree
+    }
+
+    pub fn new_from_file(entries: &'a [TableEntry], path: &Path) -> ProgressTable<'a> {
+        use std::collections::HashMap;
+        let mut buf = Vec::<u8>::new();
+        File::open(path).unwrap().read_to_end(&mut buf).unwrap();
+        let data: ProgressTableData = serde_json::from_slice(&buf).unwrap();
+        let mut imap = HashMap::new();
+        for entry in data.entries {
+            imap.insert(entry.1, entry.0);
+        }
+        let pe = || {
+            entries.iter().map(|x| {
+                if imap.contains_key(x) {
+                    imap[x]
+                } else {
+                    ProgressEntry {
+                        distrust: UNIT,
+                        pass: false,
+                    }
+                }
+            })
+        };
+        let pev: Vec<ProgressEntry> = pe().collect();
+        ProgressTable {
+            entries: pe().zip(entries.iter()).collect(),
+            tree_passed: ProgressTable::tree_from_entries(&pev, true),
+            tree_failed: ProgressTable::tree_from_entries(&pev, false),
+            stp: data.stp,
+        }
+    }
+
     pub fn new(input: &'a [TableEntry]) -> ProgressTable<'a> {
         let n = input.len();
         ProgressTable {
@@ -99,7 +168,6 @@ impl<'a> ProgressTable<'a> {
             stp: UNIT as f64,
         }
     }
-
     pub fn select_random_entries<F>(
         &mut self,
         n: usize,
@@ -171,122 +239,149 @@ impl<'a> ProgressTable<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 struct ProgressEntry {
     /// Variable size from 0 to UNIT
     distrust: i64,
     pass: bool,
 }
 
-fn readin(lines: &mut std::io::Lines<std::io::StdinLock>) -> Option<String> {
-    use crossterm::{cursor, ExecutableCommand};
-    std::io::stdout()
-        .lock()
-        .execute(cursor::MoveRight(4))
-        .unwrap();
-    let r = lines.next().map(|x| x.unwrap());
-    cli::cls();
-    r
+struct Simulation<'a> {
+    pt: ProgressTable<'a>,
+    args: Args,
 }
 
-fn simulate(mut pt: ProgressTable, flag_debug: bool) {
-    use rand::prelude::*;
-    use std::io::{self, BufRead};
-    const LEARN_SESSIONS: usize = 10;
-    const ASSESS_SESSIONS: usize = 10;
-    /* loop {
-     *   A = select X entries from non-passed entries
-     *   for each I in A {
-     *     learn I
-     *     pick random entry
-     *   }
-     *   B =
-     * }
-     */
-    let stdin = io::stdin();
-    let lines = &mut stdin.lock().lines();
-    let mut rng = rand::thread_rng();
-    let mut selector = || rng.gen::<f64>();
-    loop {
-        if flag_debug {
-            eprintln!("=== ĮSIMINIMAS ===")
+impl<'a> Simulation<'a> {
+    fn ptset(&mut self, idx: usize, val: bool) {
+        self.pt.set(idx, val);
+        if let Some(op) = self
+            .args
+            .progress
+            .as_ref()
+            .or(self.args.outprogress.as_ref())
+        {
+            self.pt.write_to_file(op)
         }
-        //cli::standby(lines);
-        let lentries = pt.select_random_entries(LEARN_SESSIONS, false, || 0_f64);
-        for lentry in lentries {
-            let lte: &TableEntry = lentry.1;
-            println!("    {}", lte.lhs);
-            println!("    {}", lte.rhs);
-            cli::standby(lines);
-            pt.set(lentry.0, true);
-            if flag_debug {
-                eprintln!("{:#?}", pt)
+    }
+
+    pub fn simulate(&mut self) {
+        use rand::prelude::*;
+        const LEARN_SESSIONS: usize = 10;
+        const ASSESS_SESSIONS: usize = 10;
+        /* loop {
+         *   A = select X entries from non-passed entries
+         *   for each I in A {
+         *     learn I
+         *     pick random entry
+         *   }
+         *   B =
+         * }
+         */
+        let stdin = std::io::stdin();
+        let lines = &mut stdin.lock().lines();
+        let mut rng = rand::thread_rng();
+        let mut selector = || rng.gen::<f64>();
+        loop {
+            if self.args.debug {
+                eprintln!("=== ĮSIMINIMAS ===")
             }
-            loop {
-                let rentries = pt.select_random_entries(1, true, &mut selector);
-                if rentries.is_empty() {
-                    break;
+            //cli::standby(lines);
+            let lentries = self
+                .pt
+                .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
+            for lentry in lentries {
+                let lte: &TableEntry = lentry.1;
+                println!("    {}", lte.lhs);
+                println!("    {}", lte.rhs);
+                cli::standby(lines);
+                self.ptset(lentry.0, true);
+                if self.args.debug {
+                    eprintln!("{:#?}", self.pt)
                 }
-                let (ridx, rte) = rentries[0];
+                loop {
+                    let rentries = self.pt.select_random_entries(1, true, &mut selector);
+                    if rentries.is_empty() {
+                        break;
+                    }
+                    let (ridx, rte) = rentries[0];
+                    println!("    {}", rte.lhs);
+                    let uln = cli::readin(lines).unwrap();
+                    if self.args.debug {
+                        eprintln!("{:#?}", self.pt);
+                    }
+                    let rpass = rte.assess(uln);
+                    if self.args.debug {
+                        eprintln!("{}", rpass);
+                    }
+                    self.ptset(ridx, rpass);
+                    self.pt.step();
+                    if rpass {
+                        break;
+                    }
+                    println!("    {}", rte.lhs);
+                    println!("    {}", rte.rhs);
+                    cli::standby(lines);
+                    if self.args.debug {
+                        eprintln!("{:#?}", self.pt);
+                    }
+                    self.ptset(lentry.0, true);
+                }
+            }
+            println!("=== SAVIKONTROLĖ ===");
+            cli::standby(lines);
+            let rentries = self
+                .pt
+                .select_random_entries(ASSESS_SESSIONS, true, &mut selector);
+            for rentry in rentries {
+                let (ridx, rte) = rentry;
                 println!("    {}", rte.lhs);
-                let uln = readin(lines).unwrap();
-                if flag_debug {
-                    eprintln!("{:#?}", pt);
+                let uln = cli::readin(lines).unwrap();
+                if self.args.debug {
+                    eprintln!("{:#?}", self.pt);
                 }
                 let rpass = rte.assess(uln);
-                if flag_debug {
+                if self.args.debug {
                     eprintln!("{}", rpass);
                 }
-                pt.set(ridx, rpass);
-                pt.step();
-                if rpass {
-                    break;
-                }
-                println!("    {}", rte.lhs);
-                println!("    {}", rte.rhs);
-                cli::standby(lines);
-                if flag_debug {
-                    eprintln!("{:#?}", pt);
-                }
-                pt.set(lentry.0, true);
+                self.ptset(ridx, rpass);
+                self.pt.step();
             }
-        }
-        println!("=== SAVIKONTROLĖ ===");
-        cli::standby(lines);
-        let rentries = pt.select_random_entries(ASSESS_SESSIONS, true, &mut selector);
-        for rentry in rentries {
-            let (ridx, rte) = rentry;
-            println!("    {}", rte.lhs);
-            let uln = readin(lines).unwrap();
-            if flag_debug {
-                eprintln!("{:#?}", pt);
-            }
-            let rpass = rte.assess(uln);
-            if flag_debug {
-                eprintln!("{}", rpass);
-            }
-            pt.set(ridx, rpass);
-            pt.step();
         }
     }
 }
-
+mod progress_path;
 use clap::Parser;
+//use progress_path::ProgressPath;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// The JSON-formatted input path
+    /// The path to an existing JSON-formatted input file.
     #[clap()]
-    inpath: std::path::PathBuf,
+    inpath: PathBuf,
 
+    /// Path to the progress file.
+    /// If the specified file does not exist,
+    ///   a new file is attempted to be created on the path.
+    /// Otherwise, the given file is read.
+    /// If the flag is not specified, the progress is not tracked.
+    #[clap(short, long)]
+    progress: Option<PathBuf>,
+
+    /// Output path to the progress file
+    /// If the path is not specified,
+    ///   the output path is read from --progress path.
+    #[clap(short, long)]
+    outprogress: Option<PathBuf>,
+
+    /// Enable verbose debugging to STDERR.
     #[clap(short, long)]
     debug: bool,
 }
 
 fn init() {
     use crossterm::{cursor, ExecutableCommand};
-    use std::io::{self, BufRead};
     ctrlc::set_handler(|| {
         std::io::stdout().lock().execute(cursor::Show).unwrap();
         println!();
@@ -315,7 +410,14 @@ fn init() {
     Press ENTER to begin
 "
     );
-    cli::standby(&mut io::stdin().lock().lines());
+    cli::standby(&mut std::io::stdin().lock().lines());
+}
+
+fn get_file_type(path: &Path) -> Option<std::fs::FileType> {
+    match std::fs::metadata(path) {
+        Ok(m) => Some(m.file_type()),
+        Err(_e) => None,
+    }
 }
 
 fn main() {
@@ -323,6 +425,17 @@ fn main() {
     let args = Args::parse();
     cli::cls();
     let table: Vec<TableEntry> = load_table(&args.inpath);
-    let progress = ProgressTable::new(&table);
-    simulate(progress, args.debug);
+    let ptable = if let Some(ppath) = args.progress.clone() {
+        if match get_file_type(&ppath) {
+            Some(pftype) => pftype.is_file(),
+            None => false,
+        } {
+            ProgressTable::new_from_file(&table, &ppath)
+        } else {
+            ProgressTable::new(&table)
+        }
+    } else {
+        ProgressTable::new(&table)
+    };
+    Simulation { pt: ptable, args }.simulate();
 }
