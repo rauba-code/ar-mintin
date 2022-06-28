@@ -127,7 +127,7 @@ impl<'a> ProgressTable<'a> {
                     imap[x]
                 } else {
                     ProgressEntry {
-                        distrust: UNIT,
+                        distrust: data.stp as i64,
                         pass: false,
                     }
                 }
@@ -256,9 +256,9 @@ impl<'a> Simulation<'a> {
         self.pt.set(idx, val);
         if let Some(op) = self
             .args
-            .progress
+            .outprogress
             .as_ref()
-            .or(self.args.outprogress.as_ref())
+            .or(self.args.progress.as_ref())
         {
             self.pt.write_to_file(op)
         }
