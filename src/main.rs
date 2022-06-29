@@ -56,85 +56,9 @@ fn load_table(path: &Path) -> Vec<TableEntry> {
 }
 
 mod args;
+mod sim;
 use ent::ProgressTable;
-struct Simulation<'a> {
-    pt: ProgressTable<'a>,
-    args: args::Args,
-}
 
-impl<'a> Simulation<'a> {
-    fn ptset(&mut self, idx: usize, val: bool) {
-        self.pt.set(idx, val);
-        if let Some(op) = self
-            .args
-            .outprogress
-            .as_ref()
-            .or(self.args.progress.as_ref())
-        {
-            self.pt.write_to_file(op)
-        }
-    }
-
-    fn show_entry(
-        &mut self,
-        ent: (usize, &TableEntry),
-        lines: &mut std::io::Lines<std::io::StdinLock>,
-    ) {
-        println!("    {}", ent.1.lhs);
-        println!("    {}", ent.1.rhs);
-        cli::standby(lines);
-        self.ptset(ent.0, true);
-    }
-
-    fn assess_entry(
-        &mut self,
-        ent: (usize, &TableEntry),
-        lines: &mut std::io::Lines<std::io::StdinLock>,
-    ) -> bool {
-        println!("    {}", ent.1.lhs);
-        let uln = cli::readin(lines).unwrap();
-        let rpass = ent.1.assess(uln);
-        self.ptset(ent.0, rpass);
-        self.pt.step();
-        rpass
-    }
-
-    pub fn simulate(&mut self) {
-        use rand::prelude::*;
-        const LEARN_SESSIONS: usize = 10;
-        const ASSESS_SESSIONS: usize = 10;
-        let stdin = std::io::stdin();
-        let lines = &mut stdin.lock().lines();
-        let mut rng = rand::thread_rng();
-        let mut selector = || rng.gen::<f64>();
-        loop {
-            let lentries = self
-                .pt
-                .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
-            for lentry in lentries {
-                self.show_entry(lentry, lines);
-                loop {
-                    let rentries = self.pt.select_random_entries(1, true, &mut selector);
-                    if rentries.is_empty() {
-                        break;
-                    }
-                    if self.assess_entry(rentries[0], lines) {
-                        break;
-                    }
-                    self.show_entry(lentry, lines)
-                }
-            }
-            println!("=== SAVIKONTROLĖ ===");
-            cli::standby(lines);
-            let rentries = self
-                .pt
-                .select_random_entries(ASSESS_SESSIONS, true, &mut selector);
-            for rentry in rentries {
-                self.assess_entry(rentry, lines);
-            }
-        }
-    }
-}
 use clap::Parser;
 fn init() {
     use crossterm::{cursor, ExecutableCommand};
@@ -193,5 +117,5 @@ fn main() {
     } else {
         ProgressTable::new(&table)
     };
-    Simulation { pt: ptable, args }.simulate();
+    sim::Simulation { pt: ptable, args }.simulate();
 }
