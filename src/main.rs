@@ -264,6 +264,30 @@ impl<'a> Simulation<'a> {
         }
     }
 
+    fn show_entry(
+        &mut self,
+        ent: (usize, &TableEntry),
+        lines: &mut std::io::Lines<std::io::StdinLock>,
+    ) {
+        println!("    {}", ent.1.lhs);
+        println!("    {}", ent.1.rhs);
+        cli::standby(lines);
+        self.ptset(ent.0, true);
+    }
+
+    fn assess_entry(
+        &mut self,
+        ent: (usize, &TableEntry),
+        lines: &mut std::io::Lines<std::io::StdinLock>,
+    ) -> bool {
+        println!("    {}", ent.1.lhs);
+        let uln = cli::readin(lines).unwrap();
+        let rpass = ent.1.assess(uln);
+        self.ptset(ent.0, rpass);
+        self.pt.step();
+        rpass
+    }
+
     pub fn simulate(&mut self) {
         use rand::prelude::*;
         const LEARN_SESSIONS: usize = 10;
@@ -277,29 +301,16 @@ impl<'a> Simulation<'a> {
                 .pt
                 .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
             for lentry in lentries {
-                let lte: &TableEntry = lentry.1;
-                println!("    {}", lte.lhs);
-                println!("    {}", lte.rhs);
-                cli::standby(lines);
-                self.ptset(lentry.0, true);
+                self.show_entry(lentry, lines);
                 loop {
                     let rentries = self.pt.select_random_entries(1, true, &mut selector);
                     if rentries.is_empty() {
                         break;
                     }
-                    let (ridx, rte) = rentries[0];
-                    println!("    {}", rte.lhs);
-                    let uln = cli::readin(lines).unwrap();
-                    let rpass = rte.assess(uln);
-                    self.ptset(ridx, rpass);
-                    self.pt.step();
-                    if rpass {
+                    if self.assess_entry(rentries[0], lines) {
                         break;
                     }
-                    println!("    {}", rte.lhs);
-                    println!("    {}", rte.rhs);
-                    cli::standby(lines);
-                    self.ptset(lentry.0, true);
+                    self.show_entry(lentry, lines)
                 }
             }
             println!("=== SAVIKONTROLĖ ===");
@@ -308,12 +319,7 @@ impl<'a> Simulation<'a> {
                 .pt
                 .select_random_entries(ASSESS_SESSIONS, true, &mut selector);
             for rentry in rentries {
-                let (ridx, rte) = rentry;
-                println!("    {}", rte.lhs);
-                let uln = cli::readin(lines).unwrap();
-                let rpass = rte.assess(uln);
-                self.ptset(ridx, rpass);
-                self.pt.step();
+                self.assess_entry(rentry, lines);
             }
         }
     }
@@ -341,6 +347,11 @@ struct Args {
     ///   the output path is read from --progress path.
     #[clap(short, long)]
     outprogress: Option<PathBuf>,
+
+    /// Simulate classic mode
+    /// (no rehearsal of the learned sentence)
+    #[clap(short, long)]
+    classic: bool,
 }
 
 fn init() {
