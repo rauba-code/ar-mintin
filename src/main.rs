@@ -246,9 +246,10 @@ struct ProgressEntry {
     pass: bool,
 }
 
+mod args;
 struct Simulation<'a> {
     pt: ProgressTable<'a>,
-    args: Args,
+    args: args::Args,
 }
 
 impl<'a> Simulation<'a> {
@@ -325,35 +326,6 @@ impl<'a> Simulation<'a> {
     }
 }
 use clap::Parser;
-use std::path::PathBuf;
-
-#[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    /// The path to an existing JSON-formatted input file.
-    #[clap()]
-    inpath: PathBuf,
-
-    /// Path to the progress file.
-    /// If the specified file does not exist,
-    ///   a new file is attempted to be created on the path.
-    /// Otherwise, the given file is read.
-    /// If the flag is not specified, the progress is not tracked.
-    #[clap(short, long)]
-    progress: Option<PathBuf>,
-
-    /// Output path to the progress file
-    /// If the path is not specified,
-    ///   the output path is read from --progress path.
-    #[clap(short, long)]
-    outprogress: Option<PathBuf>,
-
-    /// Simulate classic mode
-    /// (no rehearsal of the learned sentence)
-    #[clap(short, long)]
-    classic: bool,
-}
-
 fn init() {
     use crossterm::{cursor, ExecutableCommand};
     ctrlc::set_handler(|| {
@@ -396,7 +368,7 @@ fn get_file_type(path: &Path) -> Option<std::fs::FileType> {
 
 fn main() {
     init();
-    let args = Args::parse();
+    let args = args::Args::parse();
     cli::cls();
     let table: Vec<TableEntry> = load_table(&args.inpath);
     let ptable = if let Some(ppath) = args.progress.clone() {
