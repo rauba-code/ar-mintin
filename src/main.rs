@@ -268,24 +268,11 @@ impl<'a> Simulation<'a> {
         use rand::prelude::*;
         const LEARN_SESSIONS: usize = 10;
         const ASSESS_SESSIONS: usize = 10;
-        /* loop {
-         *   A = select X entries from non-passed entries
-         *   for each I in A {
-         *     learn I
-         *     pick random entry
-         *   }
-         *   B =
-         * }
-         */
         let stdin = std::io::stdin();
         let lines = &mut stdin.lock().lines();
         let mut rng = rand::thread_rng();
         let mut selector = || rng.gen::<f64>();
         loop {
-            if self.args.debug {
-                eprintln!("=== ĮSIMINIMAS ===")
-            }
-            //cli::standby(lines);
             let lentries = self
                 .pt
                 .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
@@ -295,9 +282,6 @@ impl<'a> Simulation<'a> {
                 println!("    {}", lte.rhs);
                 cli::standby(lines);
                 self.ptset(lentry.0, true);
-                if self.args.debug {
-                    eprintln!("{:#?}", self.pt)
-                }
                 loop {
                     let rentries = self.pt.select_random_entries(1, true, &mut selector);
                     if rentries.is_empty() {
@@ -306,13 +290,7 @@ impl<'a> Simulation<'a> {
                     let (ridx, rte) = rentries[0];
                     println!("    {}", rte.lhs);
                     let uln = cli::readin(lines).unwrap();
-                    if self.args.debug {
-                        eprintln!("{:#?}", self.pt);
-                    }
                     let rpass = rte.assess(uln);
-                    if self.args.debug {
-                        eprintln!("{}", rpass);
-                    }
                     self.ptset(ridx, rpass);
                     self.pt.step();
                     if rpass {
@@ -321,9 +299,6 @@ impl<'a> Simulation<'a> {
                     println!("    {}", rte.lhs);
                     println!("    {}", rte.rhs);
                     cli::standby(lines);
-                    if self.args.debug {
-                        eprintln!("{:#?}", self.pt);
-                    }
                     self.ptset(lentry.0, true);
                 }
             }
@@ -336,13 +311,7 @@ impl<'a> Simulation<'a> {
                 let (ridx, rte) = rentry;
                 println!("    {}", rte.lhs);
                 let uln = cli::readin(lines).unwrap();
-                if self.args.debug {
-                    eprintln!("{:#?}", self.pt);
-                }
                 let rpass = rte.assess(uln);
-                if self.args.debug {
-                    eprintln!("{}", rpass);
-                }
                 self.ptset(ridx, rpass);
                 self.pt.step();
             }
@@ -372,10 +341,6 @@ struct Args {
     ///   the output path is read from --progress path.
     #[clap(short, long)]
     outprogress: Option<PathBuf>,
-
-    /// Enable verbose debugging to STDERR.
-    #[clap(short, long)]
-    debug: bool,
 }
 
 fn init() {
