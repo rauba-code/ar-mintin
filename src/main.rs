@@ -25,15 +25,19 @@ extern crate rand;
 extern crate serde;
 extern crate serde_json;
 
+mod args;
 mod cli;
 mod ent;
 mod ostree;
+mod sim;
 
+use clap::Parser;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::Read;
 use std::path::Path;
 
+use ent::ProgressTable;
 use ent::TableEntry;
 
 fn load_table(path: &Path) -> Vec<TableEntry> {
@@ -55,11 +59,6 @@ fn load_table(path: &Path) -> Vec<TableEntry> {
     table
 }
 
-mod args;
-mod sim;
-use ent::ProgressTable;
-
-use clap::Parser;
 fn init() {
     use crossterm::{cursor, ExecutableCommand};
     ctrlc::set_handler(|| {

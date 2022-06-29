@@ -21,6 +21,7 @@ use crate::args;
 use crate::cli;
 use crate::ent::ProgressTable;
 use crate::ent::TableEntry;
+use std::collections::VecDeque;
 use std::io::prelude::*;
 
 pub struct Simulation<'a> {
@@ -49,7 +50,9 @@ impl<'a> Simulation<'a> {
         println!("    {}", ent.1.lhs);
         println!("    {}", ent.1.rhs);
         cli::standby(lines);
-        self.ptset(ent.0, true);
+        if self.args.classic {
+            self.ptset(ent.0, true);
+        }
     }
 
     fn assess_entry(
@@ -79,15 +82,19 @@ impl<'a> Simulation<'a> {
                 .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
             for lentry in lentries {
                 self.show_entry(lentry, lines);
-                loop {
-                    let rentries = self.pt.select_random_entries(1, true, &mut selector);
-                    if rentries.is_empty() {
-                        break;
+                let mut rep = VecDeque::<(usize, &TableEntry)>::new();
+                if !self.args.classic {
+                    rep.push_back(lentry);
+                }
+                rep.extend(self.pt.select_random_entries(1, true, &mut selector).iter());
+                while let Some(en) = rep.pop_front() {
+                    if !self.assess_entry(en, lines) {
+                        rep.extend(self.pt.select_random_entries(1, true, &mut selector).iter());
+                        if !self.args.classic {
+                            rep.push_back(en);
+                        }
+                        self.show_entry(en, lines);
                     }
-                    if self.assess_entry(rentries[0], lines) {
-                        break;
-                    }
-                    self.show_entry(lentry, lines)
                 }
             }
             println!("=== SAVIKONTROLĖ ===");
