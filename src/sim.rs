@@ -77,6 +77,12 @@ impl<'a> Simulation<'a> {
         let mut rng = rand::thread_rng();
         let mut selector = || rng.gen::<f64>();
         loop {
+            let rentries = self
+                .pt
+                .select_random_entries(ASSESS_SESSIONS, true, &mut selector);
+            for rentry in rentries {
+                self.assess_entry(rentry, lines);
+            }
             let lentries = self
                 .pt
                 .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
@@ -99,12 +105,6 @@ impl<'a> Simulation<'a> {
             }
             println!("=== SAVIKONTROLĖ ===");
             cli::standby(lines);
-            let rentries = self
-                .pt
-                .select_random_entries(ASSESS_SESSIONS, true, &mut selector);
-            for rentry in rentries {
-                self.assess_entry(rentry, lines);
-            }
         }
     }
 }
