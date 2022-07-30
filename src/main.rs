@@ -116,5 +116,23 @@ fn main() {
     } else {
         ProgressTable::new(&table)
     };
-    sim::Simulation { pt: ptable, args }.simulate();
+    let interact = |msg: sim::UiMessage| {
+        let lines = &mut std::io::stdin().lock().lines();
+        match msg {
+            sim::UiMessage::Assess(ent, ans) => {
+                println!("    {}", ent.lhs);
+                *ans = cli::readin(lines).unwrap();
+            }
+            sim::UiMessage::Display(ent) => {
+                println!("    {}", ent.lhs);
+                println!("    {}", ent.rhs);
+                cli::standby(lines);
+            }
+            sim::UiMessage::NotifyAssessment => {
+                println!("=== SAVIKONTROLĖ ===");
+                cli::standby(lines);
+            }
+        }
+    };
+    sim::Simulation { pt: ptable, args }.simulate(&interact);
 }

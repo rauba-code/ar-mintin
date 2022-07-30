@@ -18,11 +18,15 @@
  */
 
 use crate::args;
-use crate::cli;
 use crate::ent::ProgressTable;
 use crate::ent::TableEntry;
 use std::collections::VecDeque;
-use std::io::prelude::*;
+
+pub enum UiMessage<'a> {
+    Assess(&'a TableEntry, &'a mut String),
+    Display(&'a TableEntry),
+    NotifyAssessment,
+}
 
 pub struct Simulation<'a> {
     pub pt: ProgressTable<'a>,
@@ -42,38 +46,35 @@ impl<'a> Simulation<'a> {
         }
     }
 
-    fn show_entry(
-        &mut self,
-        ent: (usize, &TableEntry),
-        lines: &mut std::io::Lines<std::io::StdinLock>,
-    ) {
-        println!("    {}", ent.1.lhs);
-        println!("    {}", ent.1.rhs);
-        cli::standby(lines);
+    fn show_entry<F>(&mut self, ent: (usize, &TableEntry), ffn: &F)
+    where
+        F: Fn(UiMessage),
+    {
+        ffn(UiMessage::Display(ent.1));
         if self.args.classic {
             self.ptset(ent.0, true);
         }
     }
 
-    fn assess_entry(
-        &mut self,
-        ent: (usize, &TableEntry),
-        lines: &mut std::io::Lines<std::io::StdinLock>,
-    ) -> bool {
-        println!("    {}", ent.1.lhs);
-        let uln = cli::readin(lines).unwrap();
-        let rpass = ent.1.assess(uln);
+    fn assess_entry<F>(&mut self, ent: (usize, &TableEntry), ffn: &F) -> bool
+    where
+        F: Fn(UiMessage),
+    {
+        let mut ans = String::new();
+        ffn(UiMessage::Assess(ent.1, &mut ans));
+        let rpass = ent.1.assess(ans);
         self.ptset(ent.0, rpass);
         self.pt.step();
         rpass
     }
 
-    pub fn simulate(&mut self) {
+    pub fn simulate<F>(&mut self, uimsg: &F)
+    where
+        F: Fn(UiMessage),
+    {
         use rand::prelude::*;
         const LEARN_SESSIONS: usize = 10;
         const ASSESS_SESSIONS: usize = 10;
-        let stdin = std::io::stdin();
-        let lines = &mut stdin.lock().lines();
         let mut rng = rand::thread_rng();
         let mut selector = || rng.gen::<f64>();
         loop {
@@ -81,30 +82,29 @@ impl<'a> Simulation<'a> {
                 .pt
                 .select_random_entries(ASSESS_SESSIONS, true, &mut selector);
             for rentry in rentries {
-                self.assess_entry(rentry, lines);
+                self.assess_entry(rentry, uimsg);
             }
             let lentries = self
                 .pt
                 .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
             for lentry in lentries {
-                self.show_entry(lentry, lines);
+                self.show_entry(lentry, uimsg);
                 let mut rep = VecDeque::<(usize, &TableEntry)>::new();
                 if !self.args.classic {
                     rep.push_back(lentry);
                 }
                 rep.extend(self.pt.select_random_entries(1, true, &mut selector).iter());
                 while let Some(en) = rep.pop_front() {
-                    if !self.assess_entry(en, lines) {
+                    if !self.assess_entry(en, uimsg) {
                         rep.extend(self.pt.select_random_entries(1, true, &mut selector).iter());
                         if !self.args.classic {
                             rep.push_back(en);
                         }
-                        self.show_entry(en, lines);
+                        self.show_entry(en, uimsg);
                     }
                 }
             }
-            println!("=== SAVIKONTROLĖ ===");
-            cli::standby(lines);
+            uimsg(UiMessage::NotifyAssessment);
         }
     }
 }
