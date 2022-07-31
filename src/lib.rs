@@ -23,37 +23,6 @@ extern crate serde;
 extern crate serde_json;
 
 pub mod ent;
+pub mod file;
 mod ostree;
 pub mod sim;
-
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-
-use ent::TableEntry;
-
-pub fn load_table(path: &Path) -> Vec<TableEntry> {
-    let input: json::JsonValue = {
-        let mut file = File::open(&path).unwrap();
-        let mut file_data = String::new();
-        file.read_to_string(&mut file_data).unwrap();
-        json::parse(&file_data).unwrap()
-    };
-    assert!(input["version"] == 1i32);
-    let data = &input["data"];
-    let table: Vec<TableEntry> = data
-        .members()
-        .map(|x| TableEntry {
-            lhs: String::from((&x[0]).as_str().unwrap()),
-            rhs: String::from((&x[1]).as_str().unwrap()),
-        })
-        .collect();
-    table
-}
-
-pub fn get_file_type(path: &Path) -> Option<std::fs::FileType> {
-    match std::fs::metadata(path) {
-        Ok(m) => Some(m.file_type()),
-        Err(_e) => None,
-    }
-}
