@@ -1,5 +1,5 @@
 /*
- * main.rs -- Core application
+ * lib.rs -- Memorising application library
  * Copyright (C) 2022 Arnoldas Rauba
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,30 +17,22 @@
  *
  */
 
-extern crate clap;
-extern crate crossterm;
-extern crate ctrlc;
 extern crate json;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
 
-mod args;
-mod cli;
-mod ent;
+pub mod ent;
 mod ostree;
-mod sim;
+pub mod sim;
 
-use clap::Parser;
 use std::fs::File;
-use std::io::prelude::*;
 use std::io::Read;
 use std::path::Path;
 
-use ent::ProgressTable;
 use ent::TableEntry;
 
-fn load_table(path: &Path) -> Vec<TableEntry> {
+pub fn load_table(path: &Path) -> Vec<TableEntry> {
     let input: json::JsonValue = {
         let mut file = File::open(&path).unwrap();
         let mut file_data = String::new();
@@ -59,80 +51,9 @@ fn load_table(path: &Path) -> Vec<TableEntry> {
     table
 }
 
-fn init() {
-    use crossterm::{cursor, ExecutableCommand};
-    ctrlc::set_handler(|| {
-        std::io::stdout().lock().execute(cursor::Show).unwrap();
-        println!();
-        println!("Viso gero!");
-        std::process::exit(0);
-    })
-    .unwrap();
-
-    print!(
-        "    AR-MINTIN -- Įsiminimo programa / Memorising application
-    Copyright (C) 2022 Arnoldas Rauba
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-    Press ENTER to begin
-"
-    );
-    cli::standby(&mut std::io::stdin().lock().lines());
-}
-
-fn get_file_type(path: &Path) -> Option<std::fs::FileType> {
+pub fn get_file_type(path: &Path) -> Option<std::fs::FileType> {
     match std::fs::metadata(path) {
         Ok(m) => Some(m.file_type()),
         Err(_e) => None,
     }
-}
-
-pub fn main() {
-    init();
-    let args = args::Args::parse();
-    cli::cls();
-    let table: Vec<TableEntry> = load_table(&args.inpath);
-    let ptable = if let Some(ppath) = args.progress.clone() {
-        if match get_file_type(&ppath) {
-            Some(pftype) => pftype.is_file(),
-            None => false,
-        } {
-            ProgressTable::new_from_file(&table, &ppath)
-        } else {
-            ProgressTable::new(&table)
-        }
-    } else {
-        ProgressTable::new(&table)
-    };
-    let interact = |msg: sim::UiMessage| {
-        let lines = &mut std::io::stdin().lock().lines();
-        match msg {
-            sim::UiMessage::Assess(ent, ans) => {
-                println!("    {}", ent.lhs);
-                *ans = cli::readin(lines).unwrap();
-            }
-            sim::UiMessage::Display(ent) => {
-                println!("    {}", ent.lhs);
-                println!("    {}", ent.rhs);
-                cli::standby(lines);
-            }
-            sim::UiMessage::NotifyAssessment => {
-                println!("=== SAVIKONTROLĖ ===");
-                cli::standby(lines);
-            }
-        }
-    };
-    sim::Simulation { pt: ptable, args }.simulate(&interact);
 }

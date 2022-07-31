@@ -17,10 +17,29 @@
  *
  */
 
-use crate::args;
 use crate::ent::ProgressTable;
 use crate::ent::TableEntry;
 use std::collections::VecDeque;
+
+use std::path::PathBuf;
+
+pub struct SimArgs {
+    /// Path to the progress file.
+    /// If the specified file does not exist,
+    ///   a new file is attempted to be created on the path.
+    /// Otherwise, the given file is read.
+    /// If the flag is not specified, the progress is not tracked.
+    pub progress: Option<PathBuf>,
+
+    /// Output path to the progress file
+    /// If the path is not specified,
+    ///   the output path is read from --progress path.
+    pub outprogress: Option<PathBuf>,
+
+    /// Simulate classic mode
+    /// (no rehearsal of the learned sentence)
+    pub classic: bool,
+}
 
 pub enum UiMessage<'a> {
     Assess(&'a TableEntry, &'a mut String),
@@ -30,7 +49,7 @@ pub enum UiMessage<'a> {
 
 pub struct Simulation<'a> {
     pub pt: ProgressTable<'a>,
-    pub args: args::Args,
+    pub args: SimArgs,
 }
 
 impl<'a> Simulation<'a> {
