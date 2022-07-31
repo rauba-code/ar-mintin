@@ -99,7 +99,7 @@ fn get_file_type(path: &Path) -> Option<std::fs::FileType> {
     }
 }
 
-fn main() {
+pub fn main() {
     init();
     let args = args::Args::parse();
     cli::cls();
