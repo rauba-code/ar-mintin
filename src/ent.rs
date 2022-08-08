@@ -181,13 +181,17 @@ impl<'a> ProgressTable<'a> {
 
     pub fn set(&mut self, idx: usize, pass: bool) {
         let entry = &mut self.entries[idx];
-        let inc = if pass { 1 } else { self.stp as i64 };
+        let dt0 = entry.0.distrust;
+        const SMOOTH_F: f64 = 0.5;
         entry.0.pass = pass;
-        entry.0.distrust = (entry.0.distrust + inc) / 2;
-        self.tree_passed
-            .assign(idx, if pass { entry.0.distrust } else { 0 });
-        self.tree_failed
-            .assign(idx, if !pass { entry.0.distrust } else { 0 });
+        entry.0.distrust = if pass {
+            (dt0 + 1) / 2
+        } else {
+            let a: f64 = ((dt0 as f64) / (UNIT as f64)).powf(SMOOTH_F);
+            ((UNIT as f64) * a) as i64
+        };
+        self.tree_passed.assign(idx, if pass { dt0 } else { 0 });
+        self.tree_failed.assign(idx, if !pass { dt0 } else { 0 });
     }
 
     pub fn step(&mut self) {
