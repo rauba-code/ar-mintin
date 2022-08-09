@@ -19,6 +19,7 @@
 
 use crate::ent::ProgressTable;
 use crate::ent::TableEntry;
+use rand::prelude::*;
 use std::collections::VecDeque;
 
 use std::path::PathBuf;
@@ -41,8 +42,14 @@ pub struct SimArgs {
     pub classic: bool,
 }
 
-pub enum UiMessage<'a> {
+pub enum UiMessageLegacy<'a> {
     Assess(&'a TableEntry, &'a mut String),
+    Display(&'a TableEntry),
+    NotifyAssessment,
+}
+
+pub enum UiMessage<'a> {
+    Assess(&'a TableEntry),
     Display(&'a TableEntry),
     NotifyAssessment,
 }
@@ -50,9 +57,38 @@ pub enum UiMessage<'a> {
 pub struct Simulation<'a> {
     pub pt: ProgressTable<'a>,
     pub args: SimArgs,
+    state: State,
+    last_msg: Option<UiMessage<'a>>,
+    v1: Vec<(usize, &'a TableEntry)>,
+    v2: Vec<(usize, &'a TableEntry)>,
+    last_entry: Option<(usize, &'a TableEntry)>,
+}
+
+enum State {
+    Begin,
+    Assessment,
+    Learning(LearningState),
+    NotifyAssessment,
+}
+
+enum LearningState {
+    ShowEntry,
+    Assess,
 }
 
 impl<'a> Simulation<'a> {
+    pub fn new(pt: ProgressTable<'a>, args: SimArgs) -> Simulation<'a> {
+        Simulation {
+            pt,
+            args,
+            state: State::Begin,
+            last_msg: None,
+            last_entry: None,
+            v1: Vec::new(),
+            v2: Vec::new(),
+        }
+    }
+
     fn ptset(&mut self, idx: usize, val: bool) {
         self.pt.set(idx, val);
         if let Some(op) = self
@@ -67,9 +103,9 @@ impl<'a> Simulation<'a> {
 
     fn show_entry<F>(&mut self, ent: (usize, &TableEntry), ffn: &F)
     where
-        F: Fn(UiMessage),
+        F: Fn(UiMessageLegacy),
     {
-        ffn(UiMessage::Display(ent.1));
+        ffn(UiMessageLegacy::Display(ent.1));
         if self.args.classic {
             self.ptset(ent.0, true);
         }
@@ -77,45 +113,160 @@ impl<'a> Simulation<'a> {
 
     fn assess_entry<F>(&mut self, ent: (usize, &TableEntry), ffn: &F) -> bool
     where
-        F: Fn(UiMessage),
+        F: Fn(UiMessageLegacy),
     {
         let mut ans = String::new();
-        ffn(UiMessage::Assess(ent.1, &mut ans));
+        ffn(UiMessageLegacy::Assess(ent.1, &mut ans));
         let rpass = ent.1.assess(ans);
         self.ptset(ent.0, rpass);
         self.pt.step();
         rpass
     }
 
-    pub fn simulate<F>(&mut self, uimsg: &F)
-    where
-        F: Fn(UiMessage),
-    {
-        use rand::prelude::*;
+    fn next_inner(&mut self, post: &Option<String>) -> UiMessage {
         const LEARN_SESSIONS: usize = 10;
         const ASSESS_SESSIONS: usize = 10;
-        let mut rng = rand::thread_rng();
-        let mut selector = || rng.gen::<f64>();
+        let mut rng = thread_rng();
+
         loop {
+            let (msg_opt, nstate): (Option<UiMessage>, State) = match &mut self.state {
+                State::Begin => {
+                    self.v1 = self
+                        .pt
+                        .select_random_entries(ASSESS_SESSIONS, true, || rng.gen::<f64>());
+                    (None, State::Assessment)
+                }
+                State::Assessment => match &mut self.v1.pop() {
+                    None => {
+                        self.v1 = self
+                            .pt
+                            .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
+                        (None, State::Learning(LearningState::ShowEntry))
+                    }
+                    Some(tail) => {
+                        self.last_entry = Some(*tail);
+                        (Some(UiMessage::Assess(tail.1)), State::Assessment)
+                    }
+                },
+                State::Learning(LearningState::ShowEntry) => match &mut self.v1.pop() {
+                    None => (None, State::NotifyAssessment),
+                    Some(entry) => {
+                        if !self.args.classic {
+                            self.v2 = vec![*entry]
+                        } else {
+                            self.v2.clear()
+                        }
+                        (
+                            Some(UiMessage::Display(entry.1)),
+                            State::Learning(LearningState::Assess),
+                        )
+                    }
+                },
+                State::Learning(LearningState::Assess) => {
+                    match self.last_msg {
+                        Some(UiMessage::Display(_)) => {
+                            self.v2.extend(
+                                self.pt
+                                    .select_random_entries(1, true, || rng.gen::<f64>())
+                                    .iter(),
+                            );
+                        }
+                        Some(UiMessage::Assess(_)) => {
+                            let tpost = post.clone().unwrap();
+                            if !self.last_entry.unwrap().1.assess(tpost.clone()) {
+                                self.v2.extend(
+                                    self.pt
+                                        .select_random_entries(1, true, || {
+                                            thread_rng().gen::<f64>()
+                                        })
+                                        .iter(),
+                                );
+                                if !self.args.classic {
+                                    self.v2.push(self.last_entry.unwrap());
+                                }
+                            }
+                        }
+                        _ => {
+                            panic!();
+                        }
+                    }
+                    match &mut self.v2.pop() {
+                        None => (None, State::NotifyAssessment),
+                        Some(tail) => {
+                            self.last_entry = Some(*tail);
+                            (
+                                Some(UiMessage::Assess(tail.1)),
+                                State::Learning(LearningState::Assess),
+                            )
+                        }
+                    }
+                }
+                State::NotifyAssessment => {
+                    self.v1 = self
+                        .pt
+                        .select_random_entries(ASSESS_SESSIONS, true, || rng.gen::<f64>());
+                    (Some(UiMessage::NotifyAssessment), State::Assessment)
+                }
+            };
+            self.state = nstate;
+            if let Some(msg) = msg_opt {
+                return msg;
+            }
+        }
+    }
+
+    pub fn next(&mut self, post: Option<String>) -> UiMessage {
+        assert_eq!(
+            matches!(self.last_msg, Some(UiMessage::Assess(_))),
+            post.is_some()
+        );
+
+        self.next_inner(&post)
+    }
+
+    pub fn simulate<F>(&mut self, uimsg: &F)
+    where
+        F: Fn(UiMessageLegacy),
+    {
+        const LEARN_SESSIONS: usize = 10;
+        const ASSESS_SESSIONS: usize = 10;
+        loop {
+            // State::
+            // Assessment ( rentries: Vec<(usize, &TableEntry)> )
             let rentries = self
                 .pt
-                .select_random_entries(ASSESS_SESSIONS, true, &mut selector);
+                .select_random_entries(ASSESS_SESSIONS, true, || thread_rng().gen::<f64>());
             for rentry in rentries {
                 self.assess_entry(rentry, uimsg);
             }
+            // State::
+            // Learning ( lentries: Vec<(usize, &TableEntry), ssa: LearningState )
             let lentries = self
                 .pt
                 .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
             for lentry in lentries {
+                // LearningState::
+                // ShowEntry
                 self.show_entry(lentry, uimsg);
+
+                // LearningState::
+                // Assess( stack : Vec<(usize, &TableEntry)>)
                 let mut rep = VecDeque::<(usize, &TableEntry)>::new();
                 if !self.args.classic {
                     rep.push_back(lentry);
                 }
-                rep.extend(self.pt.select_random_entries(1, true, &mut selector).iter());
+                rep.extend(
+                    self.pt
+                        .select_random_entries(1, true, || thread_rng().gen::<f64>())
+                        .iter(),
+                );
                 while let Some(en) = rep.pop_front() {
                     if !self.assess_entry(en, uimsg) {
-                        rep.extend(self.pt.select_random_entries(1, true, &mut selector).iter());
+                        rep.extend(
+                            self.pt
+                                .select_random_entries(1, true, || thread_rng().gen::<f64>())
+                                .iter(),
+                        );
                         if !self.args.classic {
                             rep.push_back(en);
                         }
@@ -123,7 +274,9 @@ impl<'a> Simulation<'a> {
                     }
                 }
             }
-            uimsg(UiMessage::NotifyAssessment);
+            // State::
+            // NotifyAssessment
+            uimsg(UiMessageLegacy::NotifyAssessment);
         }
     }
 }

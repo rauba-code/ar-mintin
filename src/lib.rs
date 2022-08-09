@@ -21,6 +21,7 @@ extern crate json;
 extern crate rand;
 extern crate serde;
 extern crate serde_json;
+extern crate typed_arena;
 
 pub mod ent;
 pub mod file;
