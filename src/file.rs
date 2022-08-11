@@ -41,10 +41,3 @@ pub fn load_table(path: &Path) -> Vec<TableEntry> {
         .collect();
     table
 }
-
-pub fn get_file_type(path: &Path) -> Option<std::fs::FileType> {
-    match std::fs::metadata(path) {
-        Ok(m) => Some(m.file_type()),
-        Err(_e) => None,
-    }
-}
