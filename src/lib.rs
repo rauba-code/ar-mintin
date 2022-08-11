@@ -27,3 +27,7 @@ pub mod ent;
 pub mod file;
 mod ostree;
 pub mod sim;
+
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
