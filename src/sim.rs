@@ -104,8 +104,10 @@ impl<'a> Simulation<'a> {
         };
 
         let r = self.state.next(inp, pass, 1);
-        eprintln!();
-        eprintln!();
+        if cfg!(sim_debug) {
+            eprintln!();
+            eprintln!();
+        }
         self.last_msg = r.clone();
         match r.unwrap() {
             TMessage::Assess(a) => UiMessage::Assess(a.1),
@@ -160,8 +162,10 @@ impl<'a> Domain<'a> for Main<'a> {
         'a: 'b,
     {
         assert!(depth < MAXDEPTH);
-        let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
-        eprintln!("{} {:?}", indent, self);
+        if cfg!(sim_debug) {
+            let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
+            eprintln!("{} {:?}", indent, self);
+        }
         let r = match &mut self.inner {
             None => {
                 self.inner = Some(Bivariant::V1(Assessment::new(inp)));
@@ -182,7 +186,10 @@ impl<'a> Domain<'a> for Main<'a> {
                 Some(b) => Some(b),
             },
         };
-        eprintln!("{} {:?}", indent, r);
+        if cfg!(sim_debug) {
+            let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
+            eprintln!("{} {:?}", indent, r);
+        }
         r
     }
 }
@@ -217,8 +224,10 @@ impl<'a> Domain<'a> for Assessment<'a> {
         'a: 'b,
     {
         assert!(depth < MAXDEPTH);
-        let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
-        eprintln!("{} {:?}", indent, self);
+        if cfg!(sim_debug) {
+            let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
+            eprintln!("{} {:?}", indent, self);
+        }
         let r = {
             if self.began {
                 self.ents.pop().map(TMessage::Assess)
@@ -231,7 +240,10 @@ impl<'a> Domain<'a> for Assessment<'a> {
                 }
             }
         };
-        eprintln!("{} {:?}", indent, r);
+        if cfg!(sim_debug) {
+            let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
+            eprintln!("{} {:?}", indent, r);
+        }
         r
     }
 }
@@ -264,8 +276,10 @@ impl<'a> Domain<'a> for Learning<'a> {
         'a: 'b,
     {
         assert!(depth < MAXDEPTH);
-        let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
-        eprintln!("{} {:?}", indent, self);
+        if cfg!(sim_debug) {
+            let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
+            eprintln!("{} {:?}", indent, self);
+        }
         let r = match &mut self.inner {
             None => self.ents.pop().and_then(|tail| {
                 self.inner = Some(LearnSingle::new(tail));
@@ -276,7 +290,10 @@ impl<'a> Domain<'a> for Learning<'a> {
                 self.next(inp, _pass, depth + 1)
             }),
         };
-        eprintln!("{} {:?}", indent, r);
+        if cfg!(sim_debug) {
+            let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
+            eprintln!("{} {:?}", indent, r);
+        }
         r
     }
 }
@@ -309,8 +326,10 @@ impl<'a> Domain<'a> for LearnSingle<'a> {
         'a: 'b,
     {
         assert!(depth < MAXDEPTH);
-        let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
-        eprintln!("{} {:?}", indent, self);
+        if cfg!(sim_debug) {
+            let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
+            eprintln!("{} {:?}", indent, self);
+        }
         let r = if let Some(vhead) = self.head.filter(|_| !pass || !self.began) {
             self.began = true;
             self.head = None;
@@ -329,7 +348,10 @@ impl<'a> Domain<'a> for LearnSingle<'a> {
                 TMessage::Assess(tail)
             })
         };
-        eprintln!("{} {:?}", indent, r);
+        if cfg!(sim_debug) {
+            let indent = unsafe { String::from_utf8_unchecked(vec![b'|'; depth as usize]) };
+            eprintln!("{} {:?}", indent, r);
+        }
         r
     }
 }
