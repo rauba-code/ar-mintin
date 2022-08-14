@@ -20,7 +20,6 @@
 use crate::ent::ProgressTable;
 use crate::ent::TableEntry;
 use rand::prelude::*;
-use std::collections::VecDeque;
 
 use std::path::PathBuf;
 
@@ -86,28 +85,6 @@ impl<'a> Simulation<'a> {
         }
     }
 
-    fn show_entry<F>(&mut self, ent: (usize, &TableEntry), ffn: &F)
-    where
-        F: Fn(UiMessageLegacy),
-    {
-        ffn(UiMessageLegacy::Display(ent.1));
-        if self.args.classic {
-            self.ptset(ent.0, true);
-        }
-    }
-
-    fn assess_entry<F>(&mut self, ent: (usize, &TableEntry), ffn: &F) -> bool
-    where
-        F: Fn(UiMessageLegacy),
-    {
-        let mut ans = String::new();
-        ffn(UiMessageLegacy::Assess(ent.1, &mut ans));
-        let rpass = ent.1.assess(ans);
-        self.ptset(ent.0, rpass);
-        self.pt.step();
-        rpass
-    }
-
     pub fn next(&mut self, post: Option<String>) -> UiMessage {
         assert_eq!(
             matches!(self.last_msg, Some(TMessage::Assess(_))),
@@ -134,63 +111,6 @@ impl<'a> Simulation<'a> {
             TMessage::Assess(a) => UiMessage::Assess(a.1),
             TMessage::Display(a) => UiMessage::Display(a.1),
             TMessage::NotifyAssessment => UiMessage::NotifyAssessment,
-        }
-    }
-
-    #[warn(deprecated)]
-    pub fn simulate<F>(&mut self, uimsg: &F)
-    where
-        F: Fn(UiMessageLegacy),
-    {
-        const LEARN_SESSIONS: usize = 10;
-        const ASSESS_SESSIONS: usize = 10;
-        loop {
-            // State::
-            // Assessment ( rentries: Vec<(usize, &TableEntry)> )
-            let rentries = self
-                .pt
-                .select_random_entries(ASSESS_SESSIONS, true, || thread_rng().gen::<f64>());
-            for rentry in rentries {
-                self.assess_entry(rentry, uimsg);
-            }
-            // State::
-            // Learning ( lentries: Vec<(usize, &TableEntry), ssa: LearningState )
-            let lentries = self
-                .pt
-                .select_random_entries(LEARN_SESSIONS, false, || 0_f64);
-            for lentry in lentries {
-                // LearningState::
-                // ShowEntry
-                self.show_entry(lentry, uimsg);
-
-                // LearningState::
-                // Assess( stack : Vec<(usize, &TableEntry)>)
-                let mut rep = VecDeque::<(usize, &TableEntry)>::new();
-                if !self.args.classic {
-                    rep.push_back(lentry);
-                }
-                rep.extend(
-                    self.pt
-                        .select_random_entries(1, true, || thread_rng().gen::<f64>())
-                        .iter(),
-                );
-                while let Some(en) = rep.pop_front() {
-                    if !self.assess_entry(en, uimsg) {
-                        rep.extend(
-                            self.pt
-                                .select_random_entries(1, true, || thread_rng().gen::<f64>())
-                                .iter(),
-                        );
-                        if !self.args.classic {
-                            rep.push_back(en);
-                        }
-                        self.show_entry(en, uimsg);
-                    }
-                }
-            }
-            // State::
-            // NotifyAssessment
-            uimsg(UiMessageLegacy::NotifyAssessment);
         }
     }
 }
