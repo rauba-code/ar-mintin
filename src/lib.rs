@@ -24,9 +24,12 @@ extern crate serde_json;
 extern crate typed_arena;
 
 pub mod ent;
+pub mod ent_ex;
 pub mod file;
+pub mod file_ex;
 mod ostree;
 pub mod sim;
+pub mod sim_ex;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
