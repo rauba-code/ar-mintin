@@ -109,6 +109,7 @@ impl Simulation {
 
     pub fn flush_state(&mut self) {
         self.state = Main::new();
+        self.last_msg = None;
     }
 }
 
