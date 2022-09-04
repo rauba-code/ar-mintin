@@ -51,7 +51,7 @@ impl ProgressTableData {
                 .entries
                 .iter()
                 .zip(te)
-                .map(|(&x, y)| (x.0, y.clone()))
+                .map(|(&x, y)| (x, y.clone()))
                 .collect(),
         }
     }
@@ -61,13 +61,17 @@ pub type Idx = usize;
 
 #[derive(Debug)]
 pub struct ProgressTable {
-    pub entries: Vec<(ProgressEntry, Idx)>,
+    pub entries: Vec<ProgressEntry>,
+    capacity: usize,
+    cnt_failed: usize,
     tree_passed: OSTree,
     tree_failed: OSTree,
     stp: f64,
 }
 
-const UNIT: i64 = 10000;
+pub const UNIT: i64 = 10000;
+
+pub struct OutOfRangeError;
 
 impl ProgressTable {
     pub fn write_to_file(&self, te: &[TableEntry], path: &Path) {
@@ -84,6 +88,14 @@ impl ProgressTable {
             }
         }
         tree
+    }
+
+    pub fn is_partial(&self) -> bool {
+        self.entries.len() < self.capacity
+    }
+
+    pub fn get_unpassed_entries_count(&self) -> usize {
+        self.cnt_failed
     }
 
     pub fn new_from_file(entries: &[TableEntry], path: &Path) -> ProgressTable {
@@ -109,7 +121,9 @@ impl ProgressTable {
         };
         let pev: Vec<ProgressEntry> = pe().collect();
         ProgressTable {
-            entries: pe().zip(0..entries.len()).collect(),
+            entries: pev.clone(),
+            capacity: entries.len(),
+            cnt_failed: pev.iter().filter(|x: &&ProgressEntry| !x.pass).count(),
             tree_passed: ProgressTable::tree_from_entries(&pev, true),
             tree_failed: ProgressTable::tree_from_entries(&pev, false),
             stp: data.stp,
@@ -118,29 +132,64 @@ impl ProgressTable {
 
     pub fn new(entries: Pin<Arc<Vec<TableEntry>>>) -> ProgressTable {
         let n = entries.len();
+        Self::new_partial(entries, n, UNIT as f64)
+    }
+
+    pub fn new_empty(capacity: usize, stp: f64) -> ProgressTable {
         ProgressTable {
-            entries: (0..n)
-                .map(|x| {
-                    (
-                        ProgressEntry {
-                            distrust: UNIT,
-                            pass: false,
-                        },
-                        x,
-                    )
-                })
-                .collect(),
-            tree_passed: OSTree::new(n),
+            entries: Vec::new(),
+            capacity,
+            cnt_failed: 0,
+            tree_passed: OSTree::new(capacity),
+            tree_failed: OSTree::new(capacity),
+            stp,
+        }
+    }
+
+    pub fn new_partial(
+        entries: Pin<Arc<Vec<TableEntry>>>,
+        capacity: usize,
+        stp: f64,
+    ) -> ProgressTable {
+        let n = entries.len();
+        ProgressTable {
+            entries: vec![
+                ProgressEntry {
+                    distrust: stp as i64,
+                    pass: false,
+                };
+                n
+            ],
+            capacity,
+            cnt_failed: n,
+            tree_passed: OSTree::new(capacity),
             tree_failed: {
-                let mut xt = OSTree::new(n);
+                let mut xt = OSTree::new(capacity);
                 for i in 0..n {
-                    xt.assign(i, UNIT);
+                    xt.assign(i, stp as i64);
                 }
                 xt
             },
-            stp: UNIT as f64,
+            stp,
         }
     }
+
+    pub fn supply(&mut self, m: usize) -> Result<(), OutOfRangeError> {
+        let n = self.entries.len();
+        if n + m > self.capacity {
+            Err(OutOfRangeError)
+        } else {
+            self.entries.extend(vec![ProgressEntry {
+                distrust: self.stp as i64,
+                pass: false,
+            }]);
+            for i in n..(n + m) {
+                self.tree_failed.assign(i, self.stp as i64);
+            }
+            Ok(())
+        }
+    }
+
     pub fn select_random_entries<F>(&mut self, n: usize, pass: bool, mut selector: F) -> Vec<usize>
     where
         F: FnMut() -> f64,
@@ -177,10 +226,16 @@ impl ProgressTable {
 
     pub fn set(&mut self, idx: usize, pass: bool) {
         let entry = &mut self.entries[idx];
-        let dt0 = entry.0.distrust;
+        let dt0 = entry.distrust;
         const SMOOTH_F: f64 = 0.5;
-        entry.0.pass = pass;
-        entry.0.distrust = if pass {
+        if entry.pass {
+            self.cnt_failed += 1;
+        }
+        if pass {
+            self.cnt_failed -= 1;
+        }
+        entry.pass = pass;
+        entry.distrust = if pass {
             (dt0 + 1) / 2
         } else {
             let a: f64 = ((dt0 as f64) / (UNIT as f64)).powf(SMOOTH_F);
@@ -208,6 +263,6 @@ impl ProgressTable {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ProgressEntry {
     /// Variable size from 0 to UNIT
-    distrust: i64,
-    pass: bool,
+    pub(crate) distrust: i64,
+    pub(crate) pass: bool,
 }

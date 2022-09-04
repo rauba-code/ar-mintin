@@ -21,21 +21,7 @@ use crate::ent_ex::ProgressTable;
 use crate::ent_ex::TableEntry;
 use rand::prelude::*;
 
-use std::path::PathBuf;
-
 pub struct SimArgs {
-    /// Path to the progress file.
-    /// If the specified file does not exist,
-    ///   a new file is attempted to be created on the path.
-    /// Otherwise, the given file is read.
-    /// If the flag is not specified, the progress is not tracked.
-    pub progress: Option<PathBuf>,
-
-    /// Output path to the progress file
-    /// If the path is not specified,
-    ///   the output path is read from --progress path.
-    pub outprogress: Option<PathBuf>,
-
     /// Simulate classic mode
     /// (no rehearsal of the learned sentence)
     pub classic: bool,
@@ -50,11 +36,19 @@ pub enum TMessage<T> {
 
 pub type UiMessage = TMessage<usize>;
 
+pub struct BadMessageError;
+
 pub struct Simulation {
     pub pt: ProgressTable,
     pub args: SimArgs,
     last_msg: Option<UiMessage>,
     state: Main,
+}
+
+pub struct Change {
+    pub idx: usize,
+    pub pass: bool,
+    pub distrust: i64,
 }
 
 impl Simulation {
@@ -67,44 +61,45 @@ impl Simulation {
         }
     }
 
-    fn ptset(&mut self, te: &[TableEntry], idx: usize, val: bool) {
-        self.pt.set(idx, val);
-        if let Some(op) = self
-            .args
-            .outprogress
-            .as_ref()
-            .or(self.args.progress.as_ref())
-        {
-            self.pt.write_to_file(te, op)
-        }
-    }
-
-    pub fn next(&mut self, te: &[TableEntry], post: Option<String>) -> UiMessage {
-        assert_eq!(
-            matches!(self.last_msg, Some(TMessage::Assess(_))),
-            post.is_some()
-        );
-
-        let pass = if let Some(TMessage::Assess(ent)) = self.last_msg {
-            let b = te[ent].assess(post.unwrap());
-            self.ptset(te, ent, b);
-            b
+    pub fn next(
+        &mut self,
+        topic: &[TableEntry],
+        post: Option<String>,
+    ) -> Result<(UiMessage, Option<Change>), BadMessageError> {
+        if matches!(self.last_msg, Some(TMessage::Assess(_))) != post.is_some() {
+            Err(BadMessageError)
         } else {
-            false
-        };
-        let inp = &mut Input {
-            //et: te,
-            pt: &mut self.pt,
-            args: &self.args,
-        };
+            let change = if let Some(TMessage::Assess(ent)) = self.last_msg {
+                let b = topic[ent].assess(post.unwrap());
+                self.pt.set(ent, b);
+                Some(Change {
+                    idx: ent,
+                    pass: b,
+                    distrust: self.pt.entries[ent].distrust,
+                })
+            } else {
+                None
+            };
+            let inp = &mut Input {
+                pt: &mut self.pt,
+                args: &self.args,
+            };
 
-        let r = self.state.next(inp, pass, 1);
-        if cfg!(sim_debug) {
-            eprintln!();
-            eprintln!();
+            let r = self.state.next(
+                inp,
+                match &change {
+                    None => false,
+                    Some(a) => a.pass,
+                },
+                1,
+            );
+            if cfg!(sim_debug) {
+                eprintln!();
+                eprintln!();
+            }
+            self.last_msg = r.clone();
+            Ok((r.unwrap(), change))
         }
-        self.last_msg = r.clone();
-        r.unwrap()
     }
 
     pub fn flush_state(&mut self) {
@@ -114,7 +109,6 @@ impl Simulation {
 }
 
 pub struct Input<'b> {
-    //et: &'b Vec<TableEntry>,
     pt: &'b mut ProgressTable,
     args: &'b SimArgs,
 }
