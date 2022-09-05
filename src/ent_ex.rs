@@ -98,6 +98,10 @@ impl ProgressTable {
         self.cnt_failed
     }
 
+    pub fn get_unit(&self) -> f64 {
+        self.stp
+    }
+
     pub fn new_from_file(entries: &[TableEntry], path: &Path) -> ProgressTable {
         use std::collections::HashMap;
         let mut buf = Vec::<u8>::new();
