@@ -113,7 +113,7 @@ pub type Idx = usize;
 
 #[derive(Debug)]
 pub struct ProgressTable {
-    pub entries: Vec<ProgressEntry>,
+    pub(crate) entries: Vec<ProgressEntry>,
     capacity: usize,
     cnt_failed: usize,
     tree_passed: OSTree,
@@ -159,6 +159,14 @@ impl ProgressTable {
 
     pub fn get_age(&self) -> i32 {
         self.age
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     fn migrate(buf: &[u8]) -> ProgressTableData {
@@ -260,19 +268,22 @@ impl ProgressTable {
         }
     }
 
-    pub fn supply(&mut self, m: usize) -> Result<(), OutOfRangeError> {
+    pub fn supply(&mut self, chunk: &[ProgressEntry]) -> Result<(), OutOfRangeError> {
+        let m = chunk.len();
         let n = self.entries.len();
         if n + m > self.capacity {
             Err(OutOfRangeError)
         } else {
-            let us = self.unit_score();
-            self.entries.extend(vec![ProgressEntry {
-                distrust: us,
-                pass: false,
-            }]);
-            for i in n..(n + m) {
-                self.tree_failed.assign(i, us.0);
+            for (i, pe) in chunk.iter().enumerate() {
+                if pe.pass {
+                    self.tree_passed.assign(i + n, pe.distrust.0);
+                } else {
+                    self.tree_failed.assign(i + n, pe.distrust.0);
+                    self.cnt_failed += 1;
+                }
             }
+            self.entries.extend(chunk);
+
             Ok(())
         }
     }
@@ -341,6 +352,6 @@ impl ProgressTable {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ProgressEntry {
     /// Variable size from 0 to UNIT
-    pub(crate) distrust: Score,
-    pub(crate) pass: bool,
+    pub distrust: Score,
+    pub pass: bool,
 }
