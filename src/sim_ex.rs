@@ -18,6 +18,7 @@
  */
 
 use crate::ent_ex::ProgressTable;
+use crate::ent_ex::Score;
 use crate::ent_ex::TableEntry;
 use rand::prelude::*;
 
@@ -48,7 +49,7 @@ pub struct Simulation {
 pub struct Change {
     pub idx: usize,
     pub pass: bool,
-    pub distrust: i64,
+    pub distrust: Score,
 }
 
 impl Simulation {

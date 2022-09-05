@@ -25,6 +25,50 @@ use std::io::Read;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Score(pub i64);
+
+impl Score {
+    // Score function: Finds the unit score from the given age.
+    // The main variable here is 'arg'.
+    // The variable 'inertia' controls how slowly the curve degrades.
+    // It is usually set to the size of the memory list.
+    // Variables inside 'ScoreArgs' are intended to be static.
+    pub fn function(age: i32, inertia: f64, sa: &ScoreArgs) -> f64 {
+        if sa.origin == sa.target {
+            sa.origin.0 as f64
+        } else {
+            let u = sa.origin.0 as f64;
+            let v = sa.target.0 as f64;
+            let g = inertia * (v / u).log(sa.degrade_factor);
+            let h = (age as f64) / g.abs();
+            u * v.powf(g * (h - h.floor()) / inertia)
+        }
+    }
+
+    // Finds the age from the unit score.
+    // May return `Null` if the argument is out of range.
+    // The function does not round the result.
+    pub fn inverse(unit: f64, inertia: f64, sa: &ScoreArgs) -> Option<f64> {
+        let u = sa.origin.0 as f64;
+        let v = sa.target.0 as f64;
+        if u.min(v) <= unit && unit <= u.max(v) {
+            Some(inertia * (unit / u).log(sa.degrade_factor))
+        } else {
+            None
+        }
+    }
+}
+
+/// Static arguments to compute the score unit funtion.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct ScoreArgs {
+    pub degrade_factor: f64,
+    pub origin: Score,
+    pub target: Score,
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableEntry {
     pub lhs: String,
@@ -38,15 +82,23 @@ impl TableEntry {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ProgressTableData {
+struct ProgressTableDataLegacy {
     entries: Vec<(ProgressEntry, TableEntry)>,
     stp: f64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ProgressTableData {
+    entries: Vec<(ProgressEntry, TableEntry)>,
+    age: i32,
+    score_args: ScoreArgs,
 }
 
 impl ProgressTableData {
     pub fn new(table: &ProgressTable, te: &[TableEntry]) -> ProgressTableData {
         ProgressTableData {
-            stp: table.stp,
+            age: table.age,
+            score_args: table.score_args,
             entries: table
                 .entries
                 .iter()
@@ -66,10 +118,13 @@ pub struct ProgressTable {
     cnt_failed: usize,
     tree_passed: OSTree,
     tree_failed: OSTree,
-    stp: f64,
+    age: i32,
+    score_args: ScoreArgs,
 }
 
-pub const UNIT: i64 = 10000;
+pub struct UnitConstants {}
+
+pub const UNIT: Score = Score(10000);
 
 pub struct OutOfRangeError;
 
@@ -84,7 +139,7 @@ impl ProgressTable {
         let mut tree = OSTree::new(entries.len());
         for (idx, &entry) in entries.iter().enumerate() {
             if entry.pass == pass {
-                tree.assign(idx, entry.distrust);
+                tree.assign(idx, entry.distrust.0);
             }
         }
         tree
@@ -98,26 +153,48 @@ impl ProgressTable {
         self.cnt_failed
     }
 
-    pub fn get_unit(&self) -> f64 {
-        self.stp
+    pub fn unit_score(&self) -> Score {
+        Score(Score::function(self.age, self.entries.len() as f64, &self.score_args) as i64)
+    }
+
+    pub fn get_age(&self) -> i32 {
+        self.age
+    }
+
+    fn migrate(buf: &[u8]) -> ProgressTableData {
+        let data: ProgressTableDataLegacy = serde_json::from_slice(buf).unwrap();
+        const SCORE_ARGS: ScoreArgs = ScoreArgs {
+            degrade_factor: 0.8,
+            origin: Score(10000),
+            target: Score(100),
+        };
+        ProgressTableData {
+            score_args: SCORE_ARGS,
+            age: Score::inverse(data.stp, data.entries.len() as f64, &SCORE_ARGS).unwrap() as i32,
+            entries: data.entries,
+        }
     }
 
     pub fn new_from_file(entries: &[TableEntry], path: &Path) -> ProgressTable {
         use std::collections::HashMap;
         let mut buf = Vec::<u8>::new();
         File::open(path).unwrap().read_to_end(&mut buf).unwrap();
-        let data: ProgressTableData = serde_json::from_slice(&buf).unwrap();
+        let data: ProgressTableData =
+            serde_json::from_slice(&buf).unwrap_or_else(|_| Self::migrate(&buf));
         let mut imap = HashMap::new();
         for entry in data.entries {
             imap.insert(entry.1, entry.0);
         }
+        let n = entries.len();
         let pe = || {
             entries.iter().map(|x| {
                 if imap.contains_key(x) {
                     imap[x]
                 } else {
                     ProgressEntry {
-                        distrust: data.stp as i64,
+                        distrust: Score(
+                            Score::function(data.age, n as f64, &data.score_args) as i64
+                        ),
                         pass: false,
                     }
                 }
@@ -130,36 +207,40 @@ impl ProgressTable {
             cnt_failed: pev.iter().filter(|x: &&ProgressEntry| !x.pass).count(),
             tree_passed: ProgressTable::tree_from_entries(&pev, true),
             tree_failed: ProgressTable::tree_from_entries(&pev, false),
-            stp: data.stp,
+            age: data.age,
+            score_args: data.score_args,
         }
     }
 
-    pub fn new(entries: Pin<Arc<Vec<TableEntry>>>) -> ProgressTable {
+    pub fn new(entries: Pin<Arc<Vec<TableEntry>>>, score_args: ScoreArgs) -> ProgressTable {
         let n = entries.len();
-        Self::new_partial(entries, n, UNIT as f64)
+        Self::new_partial(entries, n, 0, score_args)
     }
 
-    pub fn new_empty(capacity: usize, stp: f64) -> ProgressTable {
+    pub fn new_empty(capacity: usize, age: i32, score_args: ScoreArgs) -> ProgressTable {
         ProgressTable {
             entries: Vec::new(),
             capacity,
             cnt_failed: 0,
             tree_passed: OSTree::new(capacity),
             tree_failed: OSTree::new(capacity),
-            stp,
+            age,
+            score_args,
         }
     }
 
     pub fn new_partial(
         entries: Pin<Arc<Vec<TableEntry>>>,
         capacity: usize,
-        stp: f64,
+        age: i32,
+        score_args: ScoreArgs,
     ) -> ProgressTable {
         let n = entries.len();
+        let unit = Score(Score::function(age, n as f64, &score_args) as i64);
         ProgressTable {
             entries: vec![
                 ProgressEntry {
-                    distrust: stp as i64,
+                    distrust: unit,
                     pass: false,
                 };
                 n
@@ -170,11 +251,12 @@ impl ProgressTable {
             tree_failed: {
                 let mut xt = OSTree::new(capacity);
                 for i in 0..n {
-                    xt.assign(i, stp as i64);
+                    xt.assign(i, unit.0);
                 }
                 xt
             },
-            stp,
+            age,
+            score_args,
         }
     }
 
@@ -183,12 +265,13 @@ impl ProgressTable {
         if n + m > self.capacity {
             Err(OutOfRangeError)
         } else {
+            let us = self.unit_score();
             self.entries.extend(vec![ProgressEntry {
-                distrust: self.stp as i64,
+                distrust: us,
                 pass: false,
             }]);
             for i in n..(n + m) {
-                self.tree_failed.assign(i, self.stp as i64);
+                self.tree_failed.assign(i, us.0);
             }
             Ok(())
         }
@@ -229,9 +312,10 @@ impl ProgressTable {
     }
 
     pub fn set(&mut self, idx: usize, pass: bool) {
+        const SMOOTH_F: f64 = 0.5;
+        let us = self.unit_score().0 as f64;
         let entry = &mut self.entries[idx];
         let dt0 = entry.distrust;
-        const SMOOTH_F: f64 = 0.5;
         if entry.pass {
             self.cnt_failed += 1;
         }
@@ -240,33 +324,23 @@ impl ProgressTable {
         }
         entry.pass = pass;
         entry.distrust = if pass {
-            (dt0 + 1) / 2
+            Score((dt0.0 + 1) / 2)
         } else {
-            let a: f64 = ((dt0 as f64) / (UNIT as f64)).powf(SMOOTH_F);
-            ((UNIT as f64) * a) as i64
+            let a: f64 = ((dt0.0 as f64) / us).powf(SMOOTH_F);
+            Score((us * a) as i64)
         };
-        self.tree_passed.assign(idx, if pass { dt0 } else { 0 });
-        self.tree_failed.assign(idx, if !pass { dt0 } else { 0 });
+        self.tree_passed.assign(idx, if pass { dt0.0 } else { 0 });
+        self.tree_failed.assign(idx, if !pass { dt0.0 } else { 0 });
     }
 
     pub fn step(&mut self) {
-        const DEGRADE_FACTOR: f64 = 0.8;
-        const MINPREC: i64 = 100;
-        let n = self.entries.len() as f64;
-        let smult: f64 = DEGRADE_FACTOR.powf(n.recip());
-        self.stp *= smult;
-        if self.stp < MINPREC as f64 {
-            const MULT: i64 = UNIT / MINPREC;
-            self.tree_passed.multiply(MULT);
-            self.tree_failed.multiply(MULT);
-            self.stp *= smult;
-        }
+        self.age += 1
     }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ProgressEntry {
     /// Variable size from 0 to UNIT
-    pub(crate) distrust: i64,
+    pub(crate) distrust: Score,
     pub(crate) pass: bool,
 }
