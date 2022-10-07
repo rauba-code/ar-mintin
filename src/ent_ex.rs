@@ -20,7 +20,6 @@
 use crate::ostree::OSTree;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::prelude::*;
 use std::io::Read;
 use std::path::Path;
 use std::pin::Pin;
@@ -38,7 +37,7 @@ impl TableEntry {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ProgressTableData {
+pub struct ProgressTableData {
     entries: Vec<(ProgressEntry, TableEntry)>,
     stp: f64,
 }
@@ -74,12 +73,6 @@ pub const UNIT: i64 = 10000;
 pub struct OutOfRangeError;
 
 impl ProgressTable {
-    pub fn write_to_file(&self, te: &[TableEntry], path: &Path) {
-        let outdata = serde_json::to_vec(&ProgressTableData::new(self, te)).unwrap();
-        let mut f = File::create(path).unwrap();
-        f.write_all(&outdata).unwrap();
-    }
-
     fn tree_from_entries(entries: &[ProgressEntry], pass: bool) -> OSTree {
         let mut tree = OSTree::new(entries.len());
         for (idx, &entry) in entries.iter().enumerate() {
