@@ -29,26 +29,29 @@ use std::sync::Arc;
 pub struct Score(pub i64);
 
 impl Score {
-    // Score function: Finds the unit score from the given age.
-    // The main variable here is 'arg'.
-    // The variable 'inertia' controls how slowly the curve degrades.
-    // It is usually set to the size of the memory list.
-    // Variables inside 'ScoreArgs' are intended to be static.
+    /// Score function: Finds the unit score from the given age.
+    /// The main variable here is 'arg'.
+    /// The variable 'inertia' controls how slowly the curve degrades.
+    /// It is usually set to the size of the memory list.
+    /// Variables inside 'ScoreArgs' are intended to be static.
     pub fn function(age: i32, inertia: f64, sa: &ScoreArgs) -> f64 {
         if sa.origin == sa.target {
             sa.origin.0 as f64
         } else {
-            let u = sa.origin.0 as f64;
-            let v = sa.target.0 as f64;
-            let g = inertia * (v / u).log(sa.degrade_factor);
-            let h = (age as f64) / g.abs();
-            u * v.powf(g * (h - h.floor()) / inertia)
+            // TODO: write unit tests for the math
+            let u = (sa.origin.0 as f64).ln();
+            let v = (sa.target.0 as f64).ln();
+            let a = age as f64;
+            let phi = sa.degrade_factor.ln();
+            let epoch = (-(u - v) / phi) * inertia;
+            let mage = epoch * ((a / epoch) - (a / epoch).floor());
+            (u + (mage * phi / inertia)).exp()
         }
     }
 
-    // Finds the age from the unit score.
-    // May return `Null` if the argument is out of range.
-    // The function does not round the result.
+    /// Finds the age from the unit score.
+    /// May return `Null` if the argument is out of range.
+    /// The function does not round the result.
     pub fn inverse(unit: f64, inertia: f64, sa: &ScoreArgs) -> Option<f64> {
         let u = sa.origin.0 as f64;
         let v = sa.target.0 as f64;
