@@ -81,21 +81,21 @@ impl TableEntry {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ProgressTableDataLegacy {
+struct ProgressTableViewLegacy {
     entries: Vec<(ProgressEntry, TableEntry)>,
     stp: f64,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ProgressTableData {
-    entries: Vec<(ProgressEntry, TableEntry)>,
-    age: i32,
-    score_args: ScoreArgs,
+pub struct ProgressTableView {
+    pub entries: Vec<(ProgressEntry, TableEntry)>,
+    pub age: i32,
+    pub score_args: ScoreArgs,
 }
 
-impl ProgressTableData {
-    pub fn new(table: &ProgressTable, te: &[TableEntry]) -> ProgressTableData {
-        ProgressTableData {
+impl ProgressTableView {
+    pub fn new(table: &ProgressTable, te: &[TableEntry]) -> ProgressTableView {
+        ProgressTableView {
             age: table.age,
             score_args: table.score_args,
             entries: table
@@ -162,14 +162,14 @@ impl ProgressTable {
         self.entries.is_empty()
     }
 
-    fn migrate(buf: &[u8]) -> ProgressTableData {
-        let data: ProgressTableDataLegacy = serde_json::from_slice(buf).unwrap();
+    fn migrate(buf: &[u8]) -> ProgressTableView {
+        let data: ProgressTableViewLegacy = serde_json::from_slice(buf).unwrap();
         const SCORE_ARGS: ScoreArgs = ScoreArgs {
             degrade_factor: 0.8,
             origin: Score(10000),
             target: Score(100),
         };
-        ProgressTableData {
+        ProgressTableView {
             score_args: SCORE_ARGS,
             age: Score::inverse(data.stp, data.entries.len() as f64, &SCORE_ARGS).unwrap() as i32,
             entries: data.entries,
@@ -180,7 +180,7 @@ impl ProgressTable {
         use std::collections::HashMap;
         let mut buf = Vec::<u8>::new();
         File::open(path).unwrap().read_to_end(&mut buf).unwrap();
-        let data: ProgressTableData =
+        let data: ProgressTableView =
             serde_json::from_slice(&buf).unwrap_or_else(|_| Self::migrate(&buf));
         let mut imap = HashMap::new();
         for entry in data.entries {
