@@ -2,6 +2,8 @@
 
 Part of work-in-progress Ar productivity suite.
 
+**ARCHIVAL NOTE:** The development is transferred to https://codeberg.org/raubarno/mintin.
+
 **Notice.** This repository contains only the core-functioning library. To use it as an application, you may be interested in AR-MINTIN-CLI ([GitHub link](https://github.com/rauba-code/ar-mintin-cli))
 
 ## Description
